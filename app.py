@@ -55,7 +55,7 @@ if video_file:
     user_query = st.text_area(
         "What insights are you seeking from the video?",
         placeholder="Ask anything about the video content. The AI agent will analyze and gather additional information.",
-        help="Proivde specific questions or insights you want from the video"
+        help="Provide specific questions or insights you want from the video"
     )
 
     if st.button(" Analyze Video", key="analyze_video_button"):
