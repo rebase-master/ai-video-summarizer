@@ -1,0 +1,17 @@
+python-dotenv~=1.0.1
+packaging
+duckduckgo-search
+fastapi
+uvicorn
+groq
+openai
+sqlalchemy
+pgvector
+psycopg[binary]
+pypdf
+streamlit~=1.41.1
+phidata
+google-generativeai
+duckduckgo-search
+
+protobuf~=5.29.3
