@@ -43,10 +43,11 @@ def initialize_agent():
             # Note: 'gemini-2.0-flash-exp' might not be a valid public model ID.
             # Using 'gemini-1.5-flash-latest' as a common, valid alternative.
             # Change this if you have specific access to 'gemini-2.0-flash-exp'.
-            model=Gemini(model="gemini-1.5-flash-latest"),
+            model=Gemini(id="gemini-2.0-flash-exp"),
             tools=[DuckDuckGo()],
             markdown=True,
             use_rag=False,
+            ragStoreName=None
         )
     except Exception as e:
         st.error(f"Failed to initialize AI Agent. Check Model ID and API Key. Error: {e}")
@@ -85,50 +86,46 @@ def download_video(url):
         Path(temp_video_path).unlink(missing_ok=True)
         return None
 
-def get_result(user_query, video_path):
+def get_result(analysis_prompt, video_path):
     """
     Analyzes the video file using the Gemini agent and displays the result.
     Cleans up the file afterward.
+    Returns True on success, False on failure.
     """
     try:
         with st.spinner("Processing video and gathering insights... This may take a moment."):
-            # Upload and process video file
             st.write("Uploading video...")
             processed_video = upload_file(video_path)
 
             st.write("Waiting for video processing...")
             while processed_video.state.name == "PROCESSING":
-                time.sleep(2)  # Wait longer for video processing
+                time.sleep(2)
                 processed_video = get_file(processed_video.name)
 
             if processed_video.state.name == "FAILED":
                 st.error("Google AI failed to process the video.")
-                return
+                return False
 
             st.write("Video processed. Analyzing with AI...")
-            # Prompt generation for analysis
-            analysis_prompt = (
-                f"""
-                Thoroughly analyze the uploaded video based on its content and context.
-                Respond to the following query: "{user_query}"
-                Use insights from the video and supplement with web research if necessary.
-                Provide a detailed, user-friendly, and well-structured response in Markdown.
-                """
+            response = multimodal_Agent.run(
+                analysis_prompt,
+                files=[processed_video],
+                use_rag=False,
+                rag_store_name=None
             )
-            # AI agent processing
-            response = multimodal_Agent.run(analysis_prompt, videos=[processed_video])
 
         # Display the result
         st.subheader("Analysis Result")
         st.markdown(response.content)
+        return True
 
     except Exception as error:
         st.error(f"An error occurred during analysis: {error}")
+        return False
     finally:
-        # Clean up temporary video file
+        # This cleanup will run in both success and error cases
         st.write("Cleaning up temporary files...")
         Path(video_path).unlink(missing_ok=True)
-        # Clean up the video on the server
         if 'processed_video' in locals() and processed_video:
             try:
                 genai.delete_file(processed_video.name)
@@ -163,54 +160,59 @@ with tab2:
         "Upload a video file", type=['mp4', 'mov', 'avi'], help="Upload a video for AI analysis"
     )
     if video_file:
+        st.write("Video FILE")
         with st.spinner("Saving uploaded video..."):
             with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as temp_video:
                 temp_video.write(video_file.read())
                 video_path = temp_video.name
             st.session_state.video_path = video_path
             st.rerun() # Rerun to show the video player
+            st.write("video_path: ", video_path)
 
 # --- 5. Video Display and Analysis Form ---
 
 # This block runs if a video path is successfully stored in the session state
 if st.session_state.video_path:
+	st.write("In session")
+	# Check if the file actually exists (it might have been deleted after a previous analysis)
+	if Path(st.session_state.video_path).exists():
+		st.subheader("Video Ready for Analysis")
+		st.video(st.session_state.video_path, format="video/mp4", start_time=0)
 
-    # Check if the file actually exists (it might have been deleted after a previous analysis)
-    if Path(st.session_state.video_path).exists():
-        st.subheader("Video Ready for Analysis")
-        st.video(st.session_state.video_path, format="video/mp4", start_time=0)
+		st.markdown("---")
 
-        st.markdown("---")
+		# This is the single, unified analysis form
+		user_query = st.text_area(
+			"What insights are you seeking from the video?",
+			placeholder="e.g., Summarize the main points of this video.\nWhat is the key message?\nWho are the speakers?",
+			height=100
+		)
 
-        # This is the single, unified analysis form
-        user_query = st.text_area(
-            "What insights are you seeking from the video?",
-            placeholder="e.g., Summarize the main points of this video.\nWhat is the key message?\nWho are the speakers?",
-            height=100
-        )
+		if st.button("✨ Analyze Video", key="analyze_button", type="primary"):
+			if not user_query:
+				st.warning("Please enter a question to analyze the video.")
+			else:
+				# Call the analysis function
+				analysis_success = get_result(user_query, st.session_state.video_path)
+					# IMPORTANT: After analysis, the file is deleted by get_result.
+					# Clear the session state path to reset the UI.
+				st.session_state.video_path = None
 
-        if st.button("✨ Analyze Video", key="analyze_button", type="primary"):
-            if not user_query:
-                st.warning("Please enter a question to analyze the video.")
-            else:
-                # Call the analysis function
-                get_result(user_query, st.session_state.video_path)
+				if analysis_success:
+					st.success("Analysis complete! Upload or submit a new video to continue.")
+				else:
+					st.error("Analysis failed. Please check the error message above.")
 
-                # IMPORTANT: After analysis, the file is deleted by get_result.
-                # Clear the session state path to reset the UI.
-                st.session_state.video_path = None
-
-                # Rerun to hide the (now processed) video player and form
-                st.success("Analysis complete! Upload or submit a new video to continue.")
-                time.sleep(2) # Give user time to read success message
-                st.rerun()
-    else:
-        # The file path was in session state, but the file is gone. Reset.
-        st.session_state.video_path = None
-        st.rerun()
+				time.sleep(2) # Give user time to read success message
+				st.rerun()
+	else:
+		st.write("Video not ready")
+		# The file path was in session state, but the file is gone. Reset.
+		st.session_state.video_path = None
+		st.rerun()
 
 else:
-    st.info("Please submit a video URL or upload a file to begin analysis.")
+	st.info("Please submit a video URL or upload a file to begin analysis.")
 
 # Optional: Customize text area height
 st.markdown(
