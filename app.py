@@ -2,79 +2,22 @@ import traceback
 import streamlit as st
 import uuid  # Used to generate unique identifiers
 from agno.agent import Agent
-from agno.models.openai import OpenAIChat
+from agno.models.google import Gemini
 from agno.tools.duckduckgo import DuckDuckGoTools
 from agno.media import Video
 import tempfile
 from pathlib import Path
 from dotenv import load_dotenv
-import subprocess
-import glob
-from openai import OpenAI
-
-from agno.media import Image  # if available; else pass file paths
-from pathlib import Path
 import os
 
-# Load environment variables (including OPENAI_API_KEY)
+# Load environment variables (including GOOGLE_API_KEY)
 load_dotenv()
 
-API_KEY = os.getenv("OPENAI_API_KEY")
+API_KEY = os.getenv("GOOGLE_API_KEY")
 
 if not API_KEY:
-    st.error("OPENAI_API_KEY environment variable not found! Please check your .env file.")
+    st.error("GOOGLE_API_KEY environment variable not found! Please check your .env file.")
     st.stop()
-
-client = OpenAI(api_key=API_KEY)
-
-def extract_frames(video_path: str, out_dir: str, fps: int = 2):
-    Path(out_dir).mkdir(parents=True, exist_ok=True)
-    # -hide_banner reduces ffmpeg noise; adjust pattern as needed
-    cmd = [
-        "ffmpeg", "-y", "-i", video_path,
-        "-vf", f"fps={fps}",  # sample fps frames/sec
-        f"{out_dir}/frame_%05d.jpg"
-    ]
-    subprocess.run(cmd, check=True)
-
-def extract_audio(video_path: str, out_audio_path: str):
-    cmd = ["ffmpeg", "-y", "-i", video_path, "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", out_audio_path]
-    subprocess.run(cmd, check=True)
-
-def transcribe_audio_with_openai(audio_file_path: str) -> str:
-    # This uses the common openai-python pattern for Whisper transcription:
-    with open(audio_file_path, "rb") as f:
-        transcript = client.audio.transcriptions.create(
-        model="whisper-1",
-        file=f
-    )
-    # transcript may be dict or object; adapt:
-    if isinstance(transcript, dict) and "text" in transcript:
-        return transcript.text
-    return str(transcript)
-
-def get_video(video_path: str):
-    frames_dir = "/tmp/my_video_frames"
-    audio_file = "/tmp/my_video_audio.wav"
-    extract_frames(video_path, frames_dir, fps=2)
-    extract_audio(video_path, audio_file)
-    transcript_text = transcribe_audio_with_openai(audio_file)
-
-    # collect a few frames (limit to N to avoid huge costs)
-    frame_paths = sorted(glob.glob(f"{frames_dir}/*.jpg"))
-    st.write("Frames size: ", len(frame_paths))
-    max_frames = 10
-    selected_frames = frame_paths[:max_frames]
-
-    # Convert to agno.media.Image if available, else send filepaths
-    agno_images = []
-    for p in selected_frames:
-        try:
-            agno_images.append(Image(filepath=p))  # if agno.media.Image exists
-        except Exception:
-            agno_images.append(p)
-    st.write("agno images count: ", len(agno_images))
-    return [agno_images, transcript_text]
 
 # Page configuration
 st.set_page_config(
@@ -83,13 +26,18 @@ st.set_page_config(
     layout="wide"
 )
 st.title("Agno Video AI Summarizer Agent")
+st.header("Powered by Gemini 2.5 Flash (Agno)")
+st.warning(
+    "🚨 Warning: If the error shows **403 PERMISSION DENIED** error, it means the issue is with your **API key permissions/billing** on the Google side, not the Python code. Please check your Google Cloud project's billing status.")
+
+st.snow()
 
 @st.cache_resource
 def initialize_agent():
     # Using the stable, modern multimodal model ID.
     return Agent(
         name="Video AI summarizer",
-        model=OpenAIChat(id="gpt-4o"),
+        model=Gemini(id="gemini-2.5-flash-preview-09-2025"),
         tools=[DuckDuckGoTools()],
         markdown=True
     )
@@ -143,18 +91,23 @@ if video_file:
                         st.text(f"Attempting to upload local file with short ID: {Path(video_path).name}")
 
                         # Create the agno.media.Video object from the local path
-                        agno_images, transcript_text = get_video(video_file_path)
+                        video_input = Video(filepath=video_path)
+
+                        # Prompt generation for analysis
                         analysis_prompt = (
                             f"""
-                            Transcript (auto):\n{transcript_text}\n\n
-                            User question: {user_query}\n\n
-                            Please analyze the selected frames and transcript and answer the user question. Mention timestamps if relevant.
+                            Analyze the uploaded video for content and context.
+                            Respond to the following query using video insights and supplementary web research
+                            {user_query}
+
+                            Provide a detailed, user-friendly, and actionable response.
                             """
                         )
+
                         # AI agent processing - Agno handles the file upload and contents array internally.
                         response = multimodal_Agent.run(
                             analysis_prompt,
-                            images=agno_images
+                            videos=[video_input],
                         )
 
                     # Display the result
@@ -166,7 +119,7 @@ if video_file:
                     if "403" in error_str or "PERMISSION_DENIED" in error_str:
                         st.error("Analysis failed due to PERMISSION DENIED (403).")
                         st.markdown(
-                            "**Action Required:** **STOP** and verify your **OpenAI Billing Status** and **API Key Restrictions** immediately.")
+                            "**Action Required:** **STOP** and verify your **Google Cloud Billing Status** and **API Key Restrictions** immediately.")
                     elif "contents are required" in error_str:
                         st.error("Analysis failed: The video upload failed entirely (likely a previous 403 error).")
                     else:

@@ -3,4 +3,4 @@ python-dotenv~=1.0.1
 agno>=0.1.0
 ddgs
 protobuf~=5.29.3
-openai>=1.40.0
+google-genai
