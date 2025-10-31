@@ -4,7 +4,7 @@
 #
 #    pip-compile --output-file=requirements-lock.txt requirements.txt
 #
-agno==2.2.1
+agno==2.2.2
     # via -r requirements.txt
 altair==5.5.0
     # via streamlit
